@@ -620,6 +620,124 @@ def _build_closing(prs, layout, proposals, recommended_idx, footer_text):
 
 # ─── PUBLIC ENTRY POINT ─────────────────────────────────────────────
 
+def _build_analysis_slide(prs, layout, analysis: dict, proposals: list,
+                          recommended_idx: int, footer_text: str):
+    """
+    Dedicated slide: 'Γιατί Προτείνουμε Αυτό το Πλάνο'
+    Shows the Claude-generated narrative, key reasons, plan verdicts, and concerns.
+    """
+    s = prs.slides.add_slide(layout)
+    s.background.fill.solid()
+    s.background.fill.fore_color.rgb = C["offWhite"]
+    _top_bar(s, C["teal"])
+
+    # ── Title bar ──
+    add_rect(s, 0, 0.1, 13.33, 0.75, C["navy"])
+    add_text(s, "🔍  Γιατί Προτείνουμε Αυτό το Πλάνο",
+             0.3, 0.1, 10.0, 0.75,
+             size=20, bold=True, color=C["white"])
+
+    rec = proposals[recommended_idx] if recommended_idx < len(proposals) else {}
+    rec_label = f"{rec.get('insurer','?')} — {rec.get('plan_name','?')}"
+    add_text(s, rec_label, 10.0, 0.1, 3.0, 0.75,
+             size=13, bold=True, color=C["gold"], align=PP_ALIGN.RIGHT)
+
+    # ── Headline banner ──
+    headline = analysis.get("headline", "")
+    if headline:
+        add_rect(s, 0.3, 0.95, 12.73, 0.45, C["teal"])
+        add_text(s, headline, 0.45, 0.95, 12.5, 0.45,
+                 size=11, bold=True, color=C["white"], italic=True)
+
+    # ── LEFT COLUMN: rationale + key reasons ──
+    lx, ly = 0.3, 1.52
+
+    # Main rationale (trimmed to 3 sentences for slide brevity)
+    rationale = analysis.get("main_rationale", "")
+    sentences = [s2.strip() for s2 in rationale.replace("\n", " ").split(".") if s2.strip()]
+    short_rationale = ". ".join(sentences[:3]) + ("." if sentences[:3] else "")
+
+    add_rect(s, lx, ly, 6.2, 0.3, C["navy"])
+    add_text(s, "  ΑΙΤΙΟΛΟΓΗΣΗ ΠΡΟΤΑΣΗΣ", lx, ly, 6.2, 0.3,
+             size=9, bold=True, color=C["teal"])
+    add_rect(s, lx, ly + 0.3, 6.2, 1.5, rgb(0xE8, 0xF4, 0xFF))
+    add_text(s, short_rationale, lx + 0.12, ly + 0.32, 5.95, 1.45,
+             size=9, color=C["textDark"], italic=True)
+
+    # Key reasons
+    reasons = analysis.get("key_reasons", [])[:4]
+    ry = ly + 1.92
+    add_rect(s, lx, ry, 6.2, 0.3, C["navy"])
+    add_text(s, "  ΒΑΣΙΚΟΙ ΛΟΓΟΙ ΕΠΙΛΟΓΗΣ", lx, ry, 6.2, 0.3,
+             size=9, bold=True, color=C["gold"])
+    for ni, reason in enumerate(reasons):
+        row_y = ry + 0.3 + ni * 0.55
+        bg = rgb(0xF0, 0xF7, 0xFF) if ni % 2 == 0 else rgb(0xE3, 0xF0, 0xFA)
+        add_rect(s, lx, row_y, 6.2, 0.52, bg)
+        add_rect(s, lx, row_y, 0.05, 0.52, C["teal"])
+        add_text(s, f"✓  {reason}", lx + 0.12, row_y + 0.02, 6.0, 0.48,
+                 size=8.5, color=C["textDark"])
+
+    # ── RIGHT COLUMN: plan verdicts + concerns ──
+    rx, ry2 = 6.83, 1.52
+    tag_colors = {
+        "ΑΡΙΣΤΟ":       C["green"],
+        "ΚΑΛΟ":         C["teal"],
+        "ΜΕΣΑΙΟ":       C["orange"],
+        "ΠΕΡΙΟΡΙΣΜΕΝΟ": C["red"],
+    }
+
+    verdicts = analysis.get("plan_verdicts", [])
+    add_rect(s, rx, ry2, 6.2, 0.3, C["navy"])
+    add_text(s, "  ΑΞΙΟΛΟΓΗΣΗ ΠΡΟΣΦΟΡΩΝ", rx, ry2, 6.2, 0.3,
+             size=9, bold=True, color=C["teal"])
+
+    vstart = ry2 + 0.3
+    row_h  = 0.65
+    for vi, v in enumerate(verdicts[:4]):
+        vrow_y = vstart + vi * row_h
+        color  = tag_colors.get(v.get("tag", ""), C["teal"])
+        add_rect(s, rx, vrow_y, 6.2, row_h - 0.04, rgb(0xF4, 0xF9, 0xFF))
+        add_rect(s, rx, vrow_y, 0.07, row_h - 0.04, color)
+        plan_title = f"{v.get('insurer','')} — {v.get('plan','')}"
+        add_text(s, plan_title, rx + 0.15, vrow_y + 0.02, 4.5, 0.26,
+                 size=8.5, bold=True, color=C["navy"])
+        tag_label = v.get("tag", "")
+        add_rect(s, rx + 4.75, vrow_y + 0.04, 1.35, 0.22, color)
+        add_text(s, tag_label, rx + 4.75, vrow_y + 0.04, 1.35, 0.22,
+                 size=7.5, bold=True, color=C["white"], align=PP_ALIGN.CENTER)
+        verdict_text = v.get("verdict", "")
+        add_text(s, verdict_text, rx + 0.15, vrow_y + 0.3, 5.95, 0.3,
+                 size=8, color=rgb(0x44, 0x44, 0x44))
+
+    # Concerns at bottom right
+    concerns = analysis.get("key_concerns", [])
+    if concerns:
+        c_y = vstart + len(verdicts[:4]) * row_h + 0.15
+        if c_y < 6.4:
+            add_rect(s, rx, c_y, 6.2, 0.28, rgb(0xFF, 0xF3, 0xCD))
+            add_rect(s, rx, c_y, 0.07, 0.28, C["orange"])
+            add_text(s, "  ΣΗΜΕΙΑ ΠΡΟΣΟΧΗΣ", rx, c_y, 6.2, 0.28,
+                     size=8.5, bold=True, color=C["orange"])
+            for ci, concern in enumerate(concerns[:2]):
+                c_item_y = c_y + 0.28 + ci * 0.38
+                if c_item_y < 6.8:
+                    add_rect(s, rx, c_item_y, 6.2, 0.35, rgb(0xFF, 0xF8, 0xE8))
+                    add_text(s, f"⚠  {concern}", rx + 0.12, c_item_y + 0.02,
+                             5.95, 0.31, size=8, color=rgb(0x80, 0x40, 0x00))
+
+    # Decision factors strip at bottom
+    factors = analysis.get("decision_factors", [])
+    if factors:
+        add_rect(s, 0.3, 6.78, 12.73, 0.3, C["navy"])
+        factors_str = "  ·  ".join(factors[:3])
+        add_text(s, f"Κριτήρια: {factors_str}",
+                 0.5, 6.78, 12.5, 0.3,
+                 size=8, color=C["teal"])
+
+    _footer(s, footer_text)
+
+
 def generate_pptx(
     client_name: str,
     client_members: list,
@@ -629,6 +747,7 @@ def generate_pptx(
     broker_tel: str,
     broker_email: str,
     logo_bytes: bytes = None,
+    analysis: dict = None,
 ) -> bytes:
     """
     Build a multi-slide PPTX comparison presentation and return raw bytes.
@@ -637,7 +756,8 @@ def generate_pptx(
         1  Cover
         2  Overview cards (all proposals side-by-side)
         3+ One detail slide per proposal
-        N-1 Comparison table (all fields)
+        N-2 Comparison table (all fields)
+        N-1 Analysis & Recommendation Rationale  ← NEW (if analysis provided)
         N   Closing / call-to-action
     """
     prs = Presentation()
@@ -656,6 +776,10 @@ def generate_pptx(
         _build_proposal_slide(prs, blank, prop, i, i == recommended_idx, footer)
 
     _build_comparison_table(prs, blank, proposals, recommended_idx, footer)
+
+    if analysis:
+        _build_analysis_slide(prs, blank, analysis, proposals, recommended_idx, footer)
+
     _build_closing(prs, blank, proposals, recommended_idx, footer)
 
     buf = io.BytesIO()
