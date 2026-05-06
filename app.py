@@ -11,6 +11,7 @@ import streamlit as st
 
 from config import BROKER_DEFAULTS, INTER_FILE_DELAY
 from extraction import compute_score, extract_insurance_data
+from analysis import generate_recommendation_analysis
 from pptx_builder import generate_pptx
 
 
@@ -281,6 +282,95 @@ def main():
             format_func=lambda i: insurer_labels[i],
         )
 
+        # ── AI ANALYSIS ──────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### 🧠 Ανάλυση & Αιτιολόγηση Πρότασης")
+        st.info(
+            "Το Claude αναλύει τις προσφορές και παράγει μια εξατομικευμένη "
+            "αιτιολόγηση — την ίδια λογική που χρησιμοποιεί ένας έμπειρος "
+            "σύμβουλος για να εξηγήσει την επιλογή στον πελάτη. "
+            "Η ανάλυση ενσωματώνεται και στην PPTX παρουσίαση.",
+            icon="💡"
+        )
+
+        if "analysis_result" not in st.session_state:
+            st.session_state.analysis_result = None
+
+        if st.button("🔍 Δημιούργησε Ανάλυση Πρότασης", type="secondary", disabled=not api_key):
+            if not client_name:
+                st.warning("Συμπλήρωσε το όνομα του πελάτη στο sidebar!")
+            else:
+                with st.spinner("Δημιουργία ανάλυσης με Claude..."):
+                    try:
+                        st.session_state.analysis_result = generate_recommendation_analysis(
+                            proposals=edited_proposals,
+                            recommended_idx=rec_idx,
+                            client_name=client_name,
+                            client_members=members,
+                            api_key=api_key,
+                        )
+                        st.success("✅ Ανάλυση ολοκληρώθηκε!")
+                    except Exception as e:
+                        st.error(f"❌ Σφάλμα ανάλυσης: {e}")
+
+        analysis = st.session_state.get("analysis_result")
+        if analysis:
+            st.markdown(
+                f"""
+                <div style='background:#1C3F5E;border-radius:10px;
+                            padding:1.2em 1.6em;margin-bottom:1em'>
+                  <p style='color:#F59E0B;font-size:1.2em;
+                             font-weight:700;margin:0'>
+                    {analysis.get("headline", "")}
+                  </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.markdown("#### 📝 Αιτιολόγηση Πρότασης")
+            st.markdown(analysis.get("main_rationale", ""))
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("#### ✅ Βασικοί Λόγοι Επιλογής")
+                for reason in analysis.get("key_reasons", []):
+                    st.markdown(f"- {reason}")
+                st.markdown("#### 🎯 Κριτήρια Απόφασης")
+                for factor in analysis.get("decision_factors", []):
+                    st.markdown(f"- {factor}")
+
+            with col_b:
+                st.markdown("#### 📊 Αξιολόγηση Προσφορών")
+                tag_colors = {
+                    "ΑΡΙΣΤΟ": "#27AE60", "ΚΑΛΟ": "#00B4D8",
+                    "ΜΕΣΑΙΟ": "#E67E22", "ΠΕΡΙΟΡΙΣΜΕΝΟ": "#E74C3C",
+                }
+                for v in analysis.get("plan_verdicts", []):
+                    color = tag_colors.get(v.get("tag", ""), "#666")
+                    st.markdown(
+                        f"""
+                        <div style='border-left:4px solid {color};
+                                    background:#F4F9FF;border-radius:4px;
+                                    padding:0.6em 1em;margin-bottom:0.5em'>
+                          <strong>{v.get('insurer','')} — {v.get('plan','')}</strong>
+                          <span style='background:{color};color:white;
+                                       border-radius:4px;padding:2px 8px;
+                                       font-size:0.75em;margin-left:8px'>
+                            {v.get('tag','')}
+                          </span><br/>
+                          <span style='color:#444;font-size:0.9em'>
+                            {v.get('verdict','')}
+                          </span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                if analysis.get("key_concerns"):
+                    st.markdown("#### ⚠️ Σημεία Προσοχής")
+                    for concern in analysis.get("key_concerns", []):
+                        st.markdown(f"- {concern}")
+
         # ── GENERATE ─────────────────────────────────────────────────
         st.markdown("---")
         if st.button("🎨 Δημιουργία Παρουσίασης PPTX", type="primary"):
@@ -299,6 +389,7 @@ def main():
                         broker_tel=broker_tel,
                         broker_email=broker_email,
                         logo_bytes=logo_bytes,
+                        analysis=st.session_state.get("analysis_result"),
                     )
                     fname_out = (
                         f"{client_name.replace(' ', '_')}_Insurance_"
